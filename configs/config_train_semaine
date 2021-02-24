@@ -1,0 +1,13 @@
+{
+    "root_directory": "/media/su/New Volume/Semaine",
+    "data_folder": "processed",
+    "frame_number_to_compact": 4800,
+    "downsampling_interval": 8,
+    "emotion_dimension": ["Arousal", "Valence"],
+    "fold_number": 20,
+    "time_depth": 64,
+    "step_size": 32,
+    "data_type": ["frame"],
+    "epoch": 10,
+    "early_stopping_bound": 3
+}

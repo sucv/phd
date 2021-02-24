@@ -1,0 +1,55 @@
+{
+    "root_directory": "E:\\Mahnob_full",
+    "modal": ["video", "eeg"],
+    "label_to_video_ratio": 16,
+    "filename_pattern": {
+        "continuous_label": "lable_continous_Mahnob.mat",
+        "video": "P{}.+Section_{}.avi",
+        "eeg": "Part_{}.+Trial{}.+.bdf",
+        "timestamp": "P{}.+Section_{}.tsv",
+        "session_log": "session.xml"
+    },
+    "session_number": 239,
+
+    "change_video_fps": {
+        "target_fps": 64
+    },
+
+    "landmark_lib": {
+        "landmark_model_folder": "load",
+        "landmark_model_filename": "shape_predictor_68_face_landmarks.dat",
+        "landmark_model_download_url": "https://github.com/AKSHAYUBHAT/TensorFace/raw/master/openface/models/dlib/shape_predictor_68_face_landmarks.dat",
+        "landmark_number": 68,
+        "output_frame_size": 250
+    },
+
+    "facial_landmark_extraction": {
+        "output_directory": "preprocessing",
+        "folder": "raw_landmark",
+        "detection_interval": 1,
+        "detection_method": "dlib",
+        "tracking_method": "lk",
+        "output_landmark_file_extension":  ".h5",
+        "visualize": false
+    },
+
+    "facial_landmark_alignment": {
+        "output_directory": "preprocessing",
+        "folder": {
+            "video": "aligned_video",
+            "landmark": "aligned_landmark"
+        },
+        "output_video_resolution": 250,
+        "output_extension": {
+            "video": ".mp4",
+            "landmark": ".h5"
+        },
+        "visualize": false
+    },
+
+    "dataset_folder_structuring": {
+        "output_directory": "dataset",
+        "continuous_label_column":  ["time", "valence"]
+    }
+
+}

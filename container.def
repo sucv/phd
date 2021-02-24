@@ -1,0 +1,32 @@
+Bootstrap: docker
+From: pytorch/pytorch:1.6.0-cuda10.1-cudnn7-runtime
+Stage: build
+
+%post
+	# Rountine for Ubuntu. Make sure to add -y for an apt install command.
+	apt update
+	apt autoremove
+	
+	# Install everything you need in the virtual system. You should customize the commands below.
+	
+	# For opencv and sk-video, so the pip install later will not fail.
+	apt install ffmpeg libsm6 libxext6 -y
+	
+	# For dlib.
+	apt install build-essential cmake -y
+	apt install libopenblas-dev liblapack-dev -y
+	apt install libx11-dev libgtk-3-dev -y
+	pip install dlib
+	pip install imutils
+	
+	# For mne
+	conda install -c conda-forge mne
+	
+	# For some pip install commands.
+	pip install sk-video opencv-python
+	pip install facenet
+
+%environment
+	# The file system of dgx node of nscc AI platform disabled the file locking. Therefore, if your code has to load h5 files by Python with open command, then you should set the environment variable below to false.
+	HDF5_USE_FILE_LOCKING='FALSE'
+	export HDF5_USE_FILE_LOCKING

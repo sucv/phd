@@ -1,0 +1,8 @@
+{
+    "root_directory": "/media/su/New Volume1/Semaine",
+    "data_folder": "processed",
+    "frame_number_to_load": 4800,
+    "downsampling_interval": 8,
+    "emotion_dimension": ["Arousal", "Valence"],
+    "fold_number": 5
+}

@@ -1,0 +1,38 @@
+{
+    "root_directory": "E:\\Mahnob_full",
+    "output_folder": "processed",
+    "modal": ["video", "eeg"],
+    "label_to_video_ratio": 16,
+    "frame_size": 120,
+    "filename_pattern": {
+        "continuous_label": "lable_continous_Mahnob.mat",
+        "video": "P{}.+Section_{}.avi",
+        "eeg": "Part_{}.+Trial{}.+bdf",
+        "timestamp": "P{}.+Section_{}.tsv",
+        "session_log": "session.xml"
+    },
+    "session_number": 239,
+
+    "change_video_fps": {
+        "target_fps": 64
+    },
+
+    "openface_config": {
+        "openface_directory": "D:\\OpenFace-master\\x64\\Release\\FeatureExtraction",
+        "input_flag": " -f ",
+        "output_features": " -2Dfp ",
+        "output_action_unit": "-aus",
+        "output_image_flag": " -simalign ",
+        "output_image_format": "-format_aligned jpg ",
+        "output_image_size": " -simsize 120 ",
+        "output_filename_flag": " -of ",
+        "output_directory_flag": " -out_dir ",
+        "output_image_mask_flag": " -nomask "
+    },
+
+    "dataset_folder_structuring": {
+        "output_directory": "dataset",
+        "continuous_label_column":  ["time", "valence"]
+    }
+
+}

@@ -1,0 +1,25 @@
+{
+    "root_directory": "/media/su/New Volume1/Recola",
+    "output_folder": "processed",
+    "openface_config": {
+        "openface_directory": "D:\\OpenFace-master\\x64\\Release\\FeatureExtraction",
+        "input_flag": " -f ",
+        "output_features": " -2Dfp ",
+        "output_image_flag": " -simalign ",
+        "output_image_format": "-format_aligned jpg ",
+        "output_image_size": " -simsize 224 ",
+        "output_filename_flag": " -of ",
+        "output_directory_flag": " -out_dir "
+    },
+    "intermediate_folder": "intermediate",
+    "modal": ["video"],
+    "label_to_video_ratio": 1,
+    "filename_pattern": {
+        "continuous_label": "P{}.csv",
+        "video": "P{}.mp4"
+    },
+    "emotion_dimension": ["arousal", "valence"],
+    "change_video_fps": {
+        "target_fps": 25
+    }
+}

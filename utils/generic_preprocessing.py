@@ -733,6 +733,63 @@ class GenericPreprocessingMahnobFull:
 
         self.dataset_info['refined_processed_length'] = self.refine_processed_video_length()
 
+        self.dataset_info['session_name'] = [directory.split(os.sep)[-1] for directory in self.dataset_info['output_folder']]
+
+        self.create_npy_for_frame()
+        self.create_npy_for_continuous_label()
+        self.save_dataset_info()
+
+    def save_dataset_info(self):
+        r"""
+        Save the dataset information for cross-operation-system consistency.
+            It is required that the pre-processing is done in the same operation
+            system, or even at the same computer. If not, the dataset info may be
+            varied. (Because some operations like sorting are different in Windows
+            and Linux, for an array having some equal elements, the sorting can be different,
+            and cause a wrong dataset info.
+        """
+        pkl_filename = os.path.join(self.root_directory, "dataset_info.pkl")
+
+        if not os.path.isfile(pkl_filename):
+            with open(pkl_filename, 'wb') as pkl_file:
+                pickle.dump(self.dataset_info, pkl_file)
+
+    def create_npy_for_frame(self):
+
+        for i, folder in tqdm(enumerate(range(self.session_number))):
+            npy_directory = self.dataset_info['output_folder'][i]
+            folder = self.dataset_info['processed_folder'][i] + "_aligned"
+            os.makedirs(npy_directory, exist_ok=True)
+            npy_filename_frame = os.path.join(npy_directory, "frame.npy")
+            if not os.path.isfile(npy_filename_frame):
+                frame_length = self.dataset_info['refined_processed_length'][i] * 16
+                frame_list = get_filename_from_a_folder_given_extension(folder, ".jpg")[:frame_length]
+                frame_matrix = np.zeros((frame_length, 120, 120, 3), dtype=np.uint8)
+
+                for j, frame in enumerate(frame_list):
+                    frame_matrix[j] = Image.open(frame)
+
+                with open(npy_filename_frame, 'wb') as f:
+                    np.save(f, frame_matrix)
+
+    def create_npy_for_continuous_label(self):
+
+        pointer = 0
+        for i, folder in tqdm(enumerate(range(self.session_number))):
+            if self.dataset_info['having_continuous_label'][i]:
+                npy_directory = self.dataset_info['output_folder'][i]
+                os.makedirs(npy_directory, exist_ok=True)
+                npy_filename_frame = os.path.join(npy_directory, "continuous_label.npy")
+                if not os.path.isfile(npy_filename_frame):
+                    continuous_label_length = self.dataset_info['refined_processed_length'][i]
+                    continuous_label = self.continuous_label_list[pointer][:continuous_label_length]
+
+                    with open(npy_filename_frame, 'wb') as f:
+                        np.save(f, continuous_label)
+
+                    pointer += 1
+                else:
+                    pointer += 1
 
     def get_output_folder_list(self):
         output_folder_list = []

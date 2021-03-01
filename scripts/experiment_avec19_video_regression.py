@@ -27,15 +27,25 @@ class generic_experiment_avec19_video_regression(object):
         self.train_country = param.tc
         self.validate_country = param.vc
         self.model = param.m
-        self.gpu = param.gpu
-        self.cpu = param.cpu
         self.stamp = param.s
         self.train_emotion = self.get_train_emotion(param.e)
-        self.model_name = param.m + "_" + self.train_emotion
-        self.device = initial_setting(seed=0, gpu_index=self.gpu, cpu_thread_number=self.cpu)
+        self.model_name = "avec209_" + param.m + "_" + self.train_emotion
         self.config = self.load_config()
         self.learning_rate = param.lr
         self.patience = param.p
+        self.time_delay = param.d
+        self.model_load_path = param.model_load_path
+        self.model_save_path = param.model_save_path
+
+        if param.model_load_path == '':
+            self.gpu = param.gpu
+            self.cpu = param.cpu
+        else:
+            self.gpu = None
+            self.cpu = None
+
+        self.device = initial_setting(seed=0, gpu_index=self.gpu, cpu_thread_number=self.cpu)
+
         self.experiment()
 
     def get_train_emotion(self, option):
@@ -79,10 +89,10 @@ class generic_experiment_avec19_video_regression(object):
 
         if self.model == "2d1d":
             model = my_2d1d(backbone_model_name="my_res50_fer+_backup", feature_dim=512,
-                            channels_1D=[128, 128, 128], output_dim=2, kernel_size=3, dropout=0.1)
+                            channels_1D=[128, 128, 128, 128, 128], output_dim=2, kernel_size=5, dropout=0.1, root_dir=self.model_load_path)
         elif self.model == "2dlstm":
             model = my_2dlstm(backbone_model_name="my_res50_fer+_backup", feature_dim=512,
-                               output_dim=2, dropout=0.4)
+                               output_dim=2, dropout=0.4, root_dir=self.model_load_path)
         else:
             raise ValueError("Unknown model!")
         return model
@@ -91,11 +101,11 @@ class generic_experiment_avec19_video_regression(object):
         arranger = AVEC19ArrangerNPY(self.config)
         train_dict, validate_dict = arranger.make_data_dict(train_country=self.train_country, validate_country=self.validate_country)
 
-        train_dataset = AVEC19Dataset(self.config, train_dict, mode='train')
+        train_dataset = AVEC19Dataset(self.config, train_dict, time_delay=self.time_delay, mode='train')
         train_loader = torch.utils.data.DataLoader(
             dataset=train_dataset, batch_size=self.config['batch_size'], shuffle=True)
 
-        validate_dataset = AVEC19Dataset(self.config, validate_dict, mode='validate')
+        validate_dataset = AVEC19Dataset(self.config, validate_dict, time_delay=self.time_delay, mode='validate')
         validate_loader = torch.utils.data.DataLoader(
             dataset=validate_dataset, batch_size=self.config['batch_size'], shuffle=False)
         return train_loader, validate_loader
@@ -107,6 +117,8 @@ class generic_experiment_avec19_video_regression(object):
 
     def experiment(self):
         directory_to_save_checkpoint_and_plot = os.path.join("load", self.model_name + "_" + self.stamp)
+        if self.model_save_path:
+            directory_to_save_checkpoint_and_plot = os.path.join(self.model_save_path, self.model_name + "_" + self.stamp)
 
         # Load the checkpoint.
         checkpoint = {}

@@ -8,7 +8,7 @@ if __name__ == '__main__':
     parser.add_argument('-d', help='Dataset: ckplus, oulu, fer2013, fer+, rafd, rafdb, affectnet', default="affectnet")
     parser.add_argument('-m', help='Model: cfer, inceptresv1, my_inceptresv2, my_res50, my_vgg13, my_2dcnn', default="my_res50")
     parser.add_argument('-cv', help='Use k-fold cross validation?', default=False)
-    parser.add_argument('-gpu', type=int, help='Which gpu to use?', default=1)
+    parser.add_argument('-gpu', type=int, help='Which gpu to use?', default=0)
     parser.add_argument('-cpu', type=int, help='How many threads are allowed?', default=1)
     args = parser.parse_args()
 

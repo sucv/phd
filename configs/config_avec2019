@@ -28,8 +28,8 @@
     "emotion_dimension": ["Arousal", "Valence"],
     "frame_number_to_compact": 80,
     "frame_size": 112,
-    "time_depth": 300,
-    "step_size": 100,
+    "time_depth": 180,
+    "step_size": 30,
     "downsampling_interval": 5,
     "target_fps": 50,
     "openface_config": {

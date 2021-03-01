@@ -1,9 +1,19 @@
 {
-    "root_directory": "E:\\Mahnob_full",
+    "root_directory": "/home/zhangsu/dataset/mahnob",
     "output_folder": "processed",
     "modal": ["video", "eeg"],
-    "label_to_video_ratio": 16,
+    "metrics": ["rmse", "pcc", "ccc"],
+    "downsampling_interval_dict": {
+        "frame": 16,
+        "eeg": 64,
+        "continuous_label": 1
+    },
+    "time_depth": 24,
+    "step_size": 8,
+    "continuous_label_frequency": 4,
     "frame_size": 120,
+    "crop_size": 112,
+    "batch_size": 2,
     "filename_pattern": {
         "continuous_label": "lable_continous_Mahnob.mat",
         "video": "P{}.+Section_{}.avi",

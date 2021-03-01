@@ -1,2 +1,0 @@
-time,epoch,best_epoch,layer_to_update,lr,plateau_count,tr_loss,tr_rmse_a,tr_pcc_a,tr_ccc_a,tr_rmse_v,tr_pcc_v,tr_ccc_v,val_loss,val_rmse_a,val_pcc_a,val_ccc_a,val_rmse_v,val_pcc_v,val_ccc_v
-333,0,0,23,0.0001,5,0.01,0.01,0.01,0.01,0.02,0.02,0.02,0.03,0.03,0.03,0.04,0.04,0.04,0.04

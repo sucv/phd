@@ -18,12 +18,79 @@ from torchvision.transforms import transforms
 from utils.helper import load_single_pkl, load_pkl_file, dict_combine
 
 
+class MAHNOBDataset(Dataset):
+    def __init__(self, config, data_list, modality, time_delay=0, mode='train'):
+        self.config = config
+        self.mode = mode
+        self.data_list = data_list
+        self.ratio = config['downsampling_interval_dict']
+        self.modality = modality
+        self.time_delay = np.int(time_delay * 4)
+        self.get_3D_transforms()
+
+    def get_3D_transforms(self):
+        normalize = transforms3D.GroupNormalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+
+        if self.mode == 'train':
+            self.transforms = transforms.Compose([
+                transforms3D.GroupNumpyToPILImage(0),
+                transforms3D.GroupRandomCrop(self.config['frame_size'], self.config['crop_size']),
+                transforms3D.GroupRandomHorizontalFlip(),
+                transforms3D.Stack(),
+                transforms3D.ToTorchFormatTensor(),
+                normalize
+            ])
+        else:
+            self.transforms = transforms.Compose([
+                transforms3D.GroupNumpyToPILImage(0),
+                transforms3D.GroupCenterCrop(self.config['crop_size']),
+                transforms3D.Stack(),
+                transforms3D.ToTorchFormatTensor(),
+                normalize
+            ])
+
+    def get_frame_indices(self, indices):
+        x = 0
+        if self.mode == 'train':
+            x = random.randint(0, self.ratio['frame'] - 1)
+        indices = indices * self.ratio['frame'] + x
+        return indices
+
+    def __len__(self):
+        return len(self.data_list)
+
+    @staticmethod
+    def load_data(directory, indices, filename):
+        filename = os.path.join(directory, filename)
+        frames = np.load(filename, mmap_mode='c')[indices]
+        return frames
+
+    def __getitem__(self, index):
+
+        directory = self.data_list[index][0]
+        absolute_indices = self.data_list[index][1]
+        relative_indices = self.data_list[index][2]
+        session = self.data_list[index][3]
+        new_indices = self.get_frame_indices(relative_indices)
+
+        frames = self.load_data(directory, new_indices, "frame.npy")
+        frames = self.transforms(frames)
+
+        continuous_labels = self.load_data(directory, relative_indices, "continuous_label.npy")
+
+        # time delay
+        continuous_labels = np.concatenate(
+            (continuous_labels[self.time_delay:, :], np.repeat(continuous_labels[-1, :][np.newaxis], repeats=self.time_delay, axis=0)), axis=0)
+
+        return frames, continuous_labels, absolute_indices, session
+
 class AVEC19Dataset(Dataset):
-    def __init__(self, config, data_list, mode='train'):
+    def __init__(self, config, data_list, time_delay=0, mode='train'):
         self.config = config
         self.mode = mode
         self.data_list = data_list
         self.ratio = config['frame_to_label_ratio']
+        self.time_delay = np.int(time_delay * 10)
         self.get_3D_transforms()
 
     def get_frame_indices(self, indices):
@@ -42,7 +109,6 @@ class AVEC19Dataset(Dataset):
         frames = np.load(filename, mmap_mode='c')[indices]
         return frames
 
-
     def __getitem__(self, index):
 
         directory = self.data_list[index][0]
@@ -55,11 +121,13 @@ class AVEC19Dataset(Dataset):
 
         continuous_labels = self.load_data(directory, indices, "continuous_label.npy")
 
+        # time delay
+        continuous_labels = np.concatenate((continuous_labels[self.time_delay:, :],
+                        np.repeat(continuous_labels[-1, :][np.newaxis], repeats=self.time_delay, axis=0)), axis=0)
+
         return frames, continuous_labels, indices, session
 
-
     def get_3D_transforms(self):
-
         normalize = transforms3D.GroupNormalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
 
         if self.mode == 'train':

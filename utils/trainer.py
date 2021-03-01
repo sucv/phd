@@ -17,6 +17,479 @@ from utils.base_class import ContinuousOutputHandler, ContinuousMetricsCalculato
     ContinuousOutputHandlerNPY
 
 
+class MAHNOBRegressionTrainer(object):
+    def __init__(
+            self,
+            model,
+            stamp,
+            model_name='2d1d',
+            model_path=None,
+            train_emotion='valence',
+            max_epoch=100,
+            optimizer=None,
+            criterion=None,
+            scheduler=None,
+            milestone=[0],
+            patience=10,
+            learning_rate=0.00001,
+            device='cpu',
+            emotional_dimension=['Valence'],
+            metrics=None,
+            verbose=False,
+            print_training_metric=False
+    ):
+
+        # The device to use.
+        self.device = device
+
+        self.stamp = stamp
+        # Whether to show the information strings.
+        self.verbose = verbose
+
+        # Whether print the metrics for training.
+        self.print_training_metric = print_training_metric
+
+        # What emotional dimensions to consider.
+        self.emotional_dimension = emotional_dimension
+        self.train_emotion = train_emotion
+
+        self.metrics = metrics
+
+        # The learning rate, and the patience of schedule.
+        self.learning_rate = learning_rate
+        self.patience = patience
+
+        # The networks.
+        self.model_path = model_path
+        if model_path is None:
+            self.model_path = 'load/' + str(model_name) + "_" + self.stamp + '.pth'
+        self.model = model.to(device)
+
+        # Get the parameters to update, to check whether the false parameters
+        # are included.
+        parameters_to_update = self.get_parameters()
+
+        # Initialize the optimizer.
+        if optimizer:
+            self.optimizer = optimizer
+        else:
+            # self.optimizer = optim.Adam(parameters_to_update, lr=learning_rate, weight_decay=0.01)
+            self.optimizer = optim.SGD(parameters_to_update, lr=learning_rate, weight_decay=0.001, momentum=0.9)
+
+        # Initialize the loss function.
+        if criterion:
+            # Use custom ccc loss
+            self.criterion = criterion
+        else:
+            self.criterion = torch.nn.MSELoss()
+
+        # Initialize the scheduler.
+        if scheduler:
+            self.scheduler = scheduler
+        else:
+            self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer)
+
+        # parameter_control
+        self.milestone = milestone
+        self.parameter_control = GenericParamControl(model)
+
+        self.lr_control = GenericReduceLROnPlateau(patience=patience, min_epoch=0, learning_rate=learning_rate,
+                                                   milestone=self.milestone, num_release=8)
+
+    def get_parameters(self):
+        r"""
+        Get the parameters to update.
+        :return:
+        """
+        # if self.verbose:
+        #     print("Layers with params to learn:")
+        params_to_update = []
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                params_to_update.append(param)
+        #         if self.verbose:
+        #             print("\t", name)
+        # if self.verbose:
+        #     print('\t', len(params_to_update), 'layers')
+        return params_to_update
+
+    def train(self, data_loader, length_to_track, directory_to_save_checkpoint_and_plot, epoch):
+        self.model.train()
+        return self.loop(data_loader, length_to_track, directory_to_save_checkpoint_and_plot, epoch, train_mode=True)
+
+    def validate(self, data_loader, length_to_track, directory_to_save_checkpoint_and_plot, epoch):
+        self.model.eval()
+        return self.loop(data_loader, length_to_track, directory_to_save_checkpoint_and_plot, epoch, train_mode=False)
+
+    def fit(
+            self,
+            data_to_load,
+            length_to_track,
+            num_epochs=100,
+            early_stopping=20,
+            min_num_epoch=10,
+            checkpoint=None,
+            directory_to_save_checkpoint_and_plot=None,
+            save_model=False
+    ):
+        r"""
+        The function to carry out training and validation.
+        :param directory_to_save_checkpoint_and_plot:
+        :param clip_sample_map_to_track:
+        :param data_to_load: (dict), the data in training and validation partitions.
+        :param length_to_track: (dict), the corresponding length of the subjects' sessions.
+        :param fold: the current fold index.
+        :param clipwise_frame_number: (int), how many frames contained in a mp4 file.
+        :param epoch_number: (int), how many epochs to run.
+        :param early_stopping: (int), how many epochs to tolerate before stopping early.
+        :param min_epoch_number: the minimum epochs to run before calculating the early stopping.
+        :param checkpoint: (dict), to save the information once an epoch is done
+        :return: (dict), the metric dictionary recording the output and its associate continuous labels
+            as a long array for each subject.
+        """
+
+        if self.verbose:
+            print("------")
+            print("Starting training, on device:", self.device)
+
+        time_fit_start = time.time()
+        train_losses, validate_losses = [], []
+        early_stopping_counter = early_stopping
+        start_epoch = 0
+
+        best_epoch_info = {
+            'model_weights': copy.deepcopy(self.model.state_dict()),
+            'loss': 1e10,
+            'ccc': -1e10
+        }
+
+        combined_train_record_dict = {}
+        combined_validate_record_dict = {}
+        combined_record_dict = {'train': [], 'validate': []}
+
+
+        if len(checkpoint.keys()) > 1:
+            time_fit_start = checkpoint['time_fit_start']
+            csv_filename = checkpoint['csv_filename']
+            start_epoch = checkpoint['start_epoch']
+            early_stopping_counter = checkpoint['early_stopping_counter']
+            best_epoch_info = checkpoint['best_epoch_info']
+            combined_train_record_dict = checkpoint['combined_train_record_dict']
+            combined_validate_record_dict = checkpoint['combined_validate_record_dict']
+            train_losses = checkpoint['train_losses']
+            validate_losses = checkpoint['validate_losses']
+            self.model.load_state_dict(checkpoint['current_model_weights'])
+            self.optimizer = checkpoint['optimizer']
+            self.scheduler = checkpoint['scheduler']
+            self.parameter_control = checkpoint['param_control']
+            self.lr_control = checkpoint['lr_control']
+            self.model.load_state_dict(best_epoch_info['model_weights'])
+        else:
+            df = pd.DataFrame(
+                columns=['time', 'epoch', 'best_epoch', 'layer_to_update', 'lr', 'plateau_count',
+                         'tr_loss', 'tr_rmse_v', 'tr_pcc_v_v', 'tr_pcc_v_conf', 'tr_ccc_v',
+                         'val_loss', 'val_rmse_v', 'val_pcc_v_v', 'val_pcc_v_conf', 'val_ccc_v'])
+
+            csv_filename = self.model_path[:-4] + ".csv"
+            df.to_csv(csv_filename, index=False)
+
+        # Loop the epochs
+        for epoch in np.arange(start_epoch, num_epochs):
+            time_epoch_start = time.time()
+
+            if epoch in self.milestone or self.lr_control.to_release:
+                self.parameter_control.release_parameters_to_update()
+                self.lr_control.released = True
+                self.lr_control.update_lr()
+                self.lr_control.to_release = False
+                self.milestone = self.lr_control.update_milestone(epoch, add_milestone=20)
+                params_to_update = self.get_parameters()
+                self.optimizer = optim.Adam(params_to_update, lr=self.lr_control.learning_rate, weight_decay=0.001, betas=(0.9, 0.999))
+                # self.optimizer = optim.SGD(params_to_update, lr=self.lr_control.learning_rate, weight_decay=0.001,
+                #                            momentum=0.9)
+
+            num_layers_to_update = len(self.optimizer.param_groups[0]['params'])
+            print("There are {} layers to update.".format(num_layers_to_update))
+            # Get the losses and the record dictionaries for training and validation.
+            train_loss, train_record_dict = self.train(data_to_load['train'], length_to_track['train'],
+                                                       directory_to_save_checkpoint_and_plot, epoch)
+
+            # Combine the record to a long array for each subject.
+            combined_train_record_dict = self.combine_record_dict(
+                combined_train_record_dict, train_record_dict)
+
+            validate_loss, validate_record_dict = self.validate(data_to_load['validate'], length_to_track['validate'],
+                                                                directory_to_save_checkpoint_and_plot, epoch)
+
+            combined_validate_record_dict = self.combine_record_dict(
+                combined_validate_record_dict, validate_record_dict)
+
+            # Calculate the mean metrics for a whole partition for information showcase.
+            mean_train_record = train_record_dict['overall']
+            mean_validate_record = validate_record_dict['overall']
+
+            train_losses.append(train_loss)
+            validate_losses.append(validate_loss)
+
+            improvement = False
+
+            if self.train_emotion == "both":
+                validate_ccc = np.mean([mean_validate_record[emotion]['ccc'] for emotion in self.emotional_dimension])
+            elif self.train_emotion == "arousal":
+                validate_ccc = np.mean(mean_validate_record['Arousal']['ccc'])
+            elif self.train_emotion == "valence":
+                validate_ccc = np.mean(mean_validate_record['Valence']['ccc'])
+            else:
+                raise  ValueError("Unknown emotion dimension!")
+
+
+            # If a lower validate loss appears.
+            if validate_ccc > best_epoch_info['ccc']:
+                if save_model:
+                    torch.save(self.model.state_dict(), self.model_path)
+
+                improvement = True
+                best_epoch_info = {
+                    'model_weights': copy.deepcopy(self.model.state_dict()),
+                    'loss': validate_loss,
+                    'ccc': validate_ccc,
+                    'epoch': epoch,
+                    'scalar_metrics': {
+                        'train_loss': train_loss,
+                        'validate_loss': validate_loss,
+                    },
+                    'array_metrics': {
+                        'train_metric_record': mean_train_record,
+                        'validate_metric_record': mean_validate_record
+                    }
+                }
+
+            # Early stopping controller.
+            if early_stopping and epoch > min_num_epoch:
+                if improvement:
+                    early_stopping_counter = early_stopping
+                else:
+                    early_stopping_counter -= 1
+
+                if early_stopping_counter <= 0:
+                    if self.verbose:
+                        print("\nEarly Stop!!")
+                    break
+
+            if validate_loss < 0:
+                print('validate loss negative')
+
+            if self.verbose:
+                print(
+                    "\n Epoch {:2} in {:.0f}s || Train loss={:.3f} | Val loss={:.3f} | LR={:.1e} | LR={:.1e} | Release_count={} | best={} | "
+                    "improvement={}-{}".format(
+                        epoch + 1,
+                        time.time() - time_epoch_start,
+                        train_loss,
+                        validate_loss,
+                        self.optimizer.param_groups[0]['lr'],
+                        self.lr_control.learning_rate,
+                        self.lr_control.release_count,
+                        int(best_epoch_info['epoch']) + 1,
+                        improvement,
+                        early_stopping_counter))
+
+                print(mean_train_record)
+                print(mean_validate_record)
+                print("------")
+
+            # df = pd.DataFrame(
+            #     columns=['time', 'epoch', 'best_epoch', 'layer_to_update', 'lr', 'plateau_count',
+            #              'tr_loss', 'tr_rmse_a', 'tr_pcc_a_v', 'tr_pcc_a_conf','tr_ccc_a', 'tr_rmse_v', 'tr_pcc_v_v', 'tr_pcc_v_conf', 'tr_ccc_v',
+            #              'val_loss', 'val_rmse_a', 'val_pcc_a_v', 'val_pcc_a_conf', 'val_ccc_a', 'val_rmse_v', 'val_pcc_v_v', 'val_pcc_v_conf', 'val_ccc_v'])
+
+            csv_records = [
+                time.time(), epoch, int(best_epoch_info['epoch']), num_layers_to_update, self.optimizer.param_groups[0]['lr'], self.lr_control.plateau_count,
+                mean_train_record['Valence']['rmse'][0], mean_train_record['Valence']['pcc'][0][0],
+                mean_train_record['Valence']['pcc'][0][1], mean_train_record['Valence']['ccc'][0],
+                validate_loss, mean_validate_record['Valence']['rmse'][0], mean_validate_record['Valence']['pcc'][0][0],
+                mean_validate_record['Valence']['pcc'][0][1], mean_validate_record['Valence']['ccc'][0],
+            ]
+
+            row_df = pd.DataFrame(data=csv_records)
+            row_df.T.to_csv(csv_filename, mode='a', index=False, header=False)
+
+            # if isinstance(self.scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            #     self.scheduler.step(validate_loss)
+            # else:
+            #     self.scheduler.step()
+
+            self.lr_control.step(epoch, 1 - validate_ccc)
+
+            if self.lr_control.updated:
+                params_to_update = self.get_parameters()
+                self.optimizer = optim.Adam(params_to_update, lr=self.lr_control.learning_rate, weight_decay=0.001, betas=(0.9, 0.999))
+                # self.optimizer = optim.SGD(params_to_update, lr=self.lr_control.learning_rate, weight_decay=0.001,
+                #                            momentum=0.9)
+                self.lr_control.updated = False
+
+            if self.lr_control.halt:
+                break
+
+            checkpoint['time_fit_start'] = time_fit_start
+            checkpoint['start_epoch'] = epoch + 1
+            checkpoint['early_stopping_counter'] = early_stopping_counter
+            checkpoint['best_epoch_info'] = best_epoch_info
+            checkpoint['combined_train_record_dict'] = combined_train_record_dict
+            checkpoint['combined_validate_record_dict'] = combined_validate_record_dict
+            checkpoint['train_losses'] = train_losses
+            checkpoint['validate_losses'] = validate_losses
+            checkpoint['csv_filename'] = csv_filename
+            checkpoint['optimizer'] = self.optimizer
+            checkpoint['scheduler'] = self.scheduler
+            checkpoint['param_control'] = self.parameter_control
+            checkpoint['current_model_weights'] = copy.deepcopy(self.model.state_dict())
+            checkpoint['lr_control'] = self.lr_control
+            checkpoint['fit_finished'] = False
+            checkpoint['fold_finished'] = False
+            if directory_to_save_checkpoint_and_plot:
+                print("Saving checkpoint.")
+                save_pkl_file(directory_to_save_checkpoint_and_plot, "checkpoint.pkl", checkpoint)
+                print("Checkpoint saved.")
+
+        checkpoint['fit_finished'] = True
+
+        combined_record_dict['train'] = combined_train_record_dict
+        combined_record_dict['validate'] = combined_validate_record_dict
+
+        self.model.load_state_dict(best_epoch_info['model_weights'])
+
+        if self.print_training_metric:
+            print("------")
+            time_elapsed = time.time() - time_fit_start
+            print("Training completed in {:.0f}m {:.0f}s".format(time_elapsed // 60, time_elapsed % 60))
+
+            print("Epoch with lowest val loss:", best_epoch_info['epoch'])
+            for m in best_epoch_info['scalar_metrics']:
+                print('{}: {:.5f}'.format(m, best_epoch_info['scalar_metrics'][m]))
+
+            print("Train metric:", best_epoch_info['array_metrics']['train_metric_record'])
+            print("Validate metric:", best_epoch_info['array_metrics']['validate_metric_record'])
+            print("------")
+
+        if save_model:
+            torch.save(self.model.state_dict(), self.model_path)
+
+
+        # return combined_record_dict, checkpoint
+
+    def loop(self, data_loader, length_to_track, directory_to_save_checkpoint_and_plot, epoch, train_mode=True):
+        running_loss = 0.0
+
+        output_handler = ContinuousOutputHandlerNPY(length_to_track, self.emotional_dimension)
+        continuous_label_handler = ContinuousOutputHandlerNPY(length_to_track, self.emotional_dimension)
+
+        # This object calculate the metrics, usually by root mean square error, pearson correlation
+        # coefficient, and concordance correlation coefficient.
+        metric_handler = ContinuousMetricsCalculator(self.metrics, self.emotional_dimension,
+                                                     output_handler, continuous_label_handler)
+        total_batch_counter = 0
+        for batch_index, (X, Y, absolute_indices, sessions) in tqdm(enumerate(data_loader), total=len(data_loader)):
+
+
+            total_batch_counter += len(sessions)
+
+            inputs = X.to(self.device)
+
+            labels = torch.squeeze(Y.float().to(self.device), dim=2)
+
+            # Determine the weight for loss function
+            if train_mode:
+                loss_weights = torch.ones([labels.shape[0], labels.shape[1], 1]).to(self.device)
+                self.optimizer.zero_grad()
+
+            outputs = self.model(inputs)
+
+            output_handler.place_clip_output_to_subjectwise_dict(outputs.detach().cpu().numpy(), absolute_indices, sessions)
+            continuous_label_handler.place_clip_output_to_subjectwise_dict(labels.detach().cpu().numpy()[:, :, np.newaxis], absolute_indices, sessions)
+            loss = self.criterion(outputs, labels.unsqueeze(2)) * outputs.size(0)
+
+            running_loss += loss.mean().item()
+
+            if train_mode:
+                loss.backward(loss_weights, retain_graph=True)
+                self.optimizer.step()
+
+            #  print_progress(batch_index, len(data_loader))
+
+        epoch_loss = running_loss / total_batch_counter
+
+        # Restore the output and continuous labels to its original shape, which is session-wise.
+        # By which the metrics can be calculated for each session.
+        # The metrics is the average across the session and subjects of a partition.
+        output_handler.get_sessionwise_dict()
+        continuous_label_handler.get_sessionwise_dict()
+
+        # Restore the output and continuous labels to partition-wise, i.e., two very long
+        # arrays.  It is used for calculating the metrics.
+        output_handler.get_partitionwise_dict()
+        continuous_label_handler.get_partitionwise_dict()
+
+        # Compute the root mean square error, pearson correlation coefficient and significance, and the
+        # concordance correlation coefficient.
+        # They are calculated by  first concatenating all the output
+        # and continuous labels to two long arrays, and then calculate the metrics.
+        metric_handler.calculate_metrics()
+        epoch_result_dict = metric_handler.metric_record_dict
+
+        # This object plot the figures and save them.
+        plot_handler = PlotHandler(self.metrics, self.emotional_dimension, epoch_result_dict,
+                                   output_handler.sessionwise_dict, continuous_label_handler.sessionwise_dict,
+                                   epoch=epoch, train_mode=train_mode,
+                                   directory_to_save_plot=directory_to_save_checkpoint_and_plot)
+        plot_handler.save_output_vs_continuous_label_plot()
+
+        return epoch_loss, epoch_result_dict
+
+    def combine_record_dict(self, main_record_dict, epoch_record_dict):
+        r"""
+        Append the metric recording dictionary of an epoch to a main record dictionary.
+            Each single term from epoch_record_dict will be appended to the corresponding
+            list in min_record_dict.
+        Therefore, the minimum terms in main_record_dict are lists, whose element number
+            are the epoch number.
+        """
+
+        # If the main record dictionary is blank, then initialize it by directly copying from epoch_record_dict.
+        # Since the minimum term in epoch_record_dict is list, it is available to append further.
+        if not bool(main_record_dict):
+            main_record_dict = epoch_record_dict
+            return main_record_dict
+
+        # Iterate the dict and append each terms from epoch_record_dict to
+        # main_record_dict.
+        for (subject_id, main_subject_record), (_, epoch_subject_record) \
+                in zip(main_record_dict.items(), epoch_record_dict.items()):
+
+            # Go through emotions, e.g., Arousal and Valence.
+            for emotion in self.emotional_dimension:
+                # Go through metrics, e.g., rmse, pcc, and ccc.
+                for metric in self.metrics:
+                    # Go through the sub-dictionary belonging to each subject.
+                    if subject_id != "overall":
+                        session_dict = epoch_record_dict[subject_id][emotion][metric]
+                        for session_id in session_dict.keys():
+                            main_record_dict[subject_id][emotion][metric][session_id].append(
+                                epoch_record_dict[subject_id][emotion][metric][session_id][0]
+                            )
+
+                    # In addition to subject-wise records, there are one extra sub-dictionary
+                    # used to store the overall metrics, which is actually the partition-wise metrics.
+                    # In this sub-dictionary, the results are obtained by first concatenating all the output
+                    # and continuous labels to two long arraies, and then calculate the metrics.
+                    else:
+                        main_record_dict[subject_id][emotion][metric].append(
+                            epoch_record_dict[subject_id][emotion][metric][0]
+                        )
+
+        return main_record_dict
+
+
 class AVEC19Trainer(object):
     def __init__(
             self,
@@ -168,15 +641,7 @@ class AVEC19Trainer(object):
         combined_validate_record_dict = {}
         combined_record_dict = {'train': [], 'validate': []}
 
-        df = pd.DataFrame(
-            columns=['time', 'epoch', 'best_epoch', 'layer_to_update', 'lr', 'plateau_count',
-                     'tr_loss', 'tr_rmse_a', 'tr_pcc_a_v', 'tr_pcc_a_conf', 'tr_ccc_a',
-                     'tr_rmse_v', 'tr_pcc_v_v', 'tr_pcc_v_conf', 'tr_ccc_v',
-                     'val_loss', 'val_rmse_a', 'val_pcc_a_v', 'val_pcc_a_conf', 'val_ccc_a',
-                     'val_rmse_v', 'val_pcc_v_v', 'val_pcc_v_conf', 'val_ccc_v'])
 
-        csv_filename = self.model_path[:-4] + ".csv"
-        df.to_csv(csv_filename, index=False)
 
         if len(checkpoint.keys()) > 1:
             time_fit_start = checkpoint['time_fit_start']
@@ -194,6 +659,16 @@ class AVEC19Trainer(object):
             self.parameter_control = checkpoint['param_control']
             self.lr_control = checkpoint['lr_control']
             self.model.load_state_dict(best_epoch_info['model_weights'])
+        else:
+            df = pd.DataFrame(
+                columns=['time', 'epoch', 'best_epoch', 'layer_to_update', 'lr', 'plateau_count',
+                         'tr_loss', 'tr_rmse_a', 'tr_pcc_a_v', 'tr_pcc_a_conf', 'tr_ccc_a',
+                         'tr_rmse_v', 'tr_pcc_v_v', 'tr_pcc_v_conf', 'tr_ccc_v',
+                         'val_loss', 'val_rmse_a', 'val_pcc_a_v', 'val_pcc_a_conf', 'val_ccc_a',
+                         'val_rmse_v', 'val_pcc_v_v', 'val_pcc_v_conf', 'val_ccc_v'])
+
+            csv_filename = self.model_path[:-4] + ".csv"
+            df.to_csv(csv_filename, index=False)
 
         # Loop the epochs
         for epoch in np.arange(start_epoch, num_epochs):
@@ -397,34 +872,29 @@ class AVEC19Trainer(object):
             total_batch_counter += len(sessions)
 
             inputs = X.to(self.device)
-
-            if train_mode:
-                labels = torch.squeeze(Y.float().to(self.device))
-            else:
-                labels = Y.float().to(self.device)
+            labels = Y.float().to(self.device)
 
             # Determine the weight for loss function
             if train_mode:
-                loss_weights = torch.ones([labels.shape[0], labels.shape[1], 2]).to(self.device)
+                loss_weights = torch.ones_like(labels).to(self.device)
                 self.optimizer.zero_grad()
 
                 if self.train_emotion == "both":
                     loss_weights[:, :, 0] *= 0.5
                     loss_weights[:, :, 1] *= 0.5
                 elif self.train_emotion == "arousal":
-                    loss_weights[:, :, 0] *= 0.8
-                    loss_weights[:, :, 1] *= 0.2
+                    loss_weights[:, :, 0] *= 0.7
+                    loss_weights[:, :, 1] *= 0.3
                 elif self.train_emotion == "valence":
-                    loss_weights[:, :, 0] *= 0.2
-                    loss_weights[:, :, 1] *= 0.8
+                    loss_weights[:, :, 0] *= 0.3
+                    loss_weights[:, :, 1] *= 0.7
                 else:
                     raise ValueError("Unknown emotion dimention to train!")
 
             outputs = self.model(inputs)
 
             output_handler.place_clip_output_to_subjectwise_dict(outputs.detach().cpu().numpy(), indices, sessions)
-            continuous_label_handler.place_clip_output_to_subjectwise_dict(labels.detach().cpu().numpy(), indices,
-                                                                           sessions)
+            continuous_label_handler.place_clip_output_to_subjectwise_dict(labels.detach().cpu().numpy(), indices, sessions)
             loss = self.criterion(outputs, labels) * outputs.size(0)
 
             running_loss += loss.mean().item()
@@ -433,7 +903,7 @@ class AVEC19Trainer(object):
                 loss.backward(loss_weights, retain_graph=True)
                 self.optimizer.step()
 
-            print_progress(batch_index, len(data_loader))
+            #  print_progress(batch_index, len(data_loader))
 
         epoch_loss = running_loss / total_batch_counter
 

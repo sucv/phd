@@ -14,11 +14,17 @@ from torch import nn
 from torch.nn.init import xavier_uniform_, constant_
 
 class my_res50(nn.Module):
-    def __init__(self, num_classes=8, use_pretrained=True):
+    def __init__(self, num_classes=8, use_pretrained=True, root_dir=''):
         super().__init__()
         self.backbone = Backbone(num_layers=50, drop_ratio=0.6, mode="ir_se")
         if use_pretrained:
-            state_dict = torch.load("load/model_ir_se50.pth", map_location='cpu')
+
+            if root_dir:
+                path = os.path.join(root_dir, "model_ir_se50.pth")
+            else:
+                path = os.path.join("load", "model_ir_se50.pth")
+
+            state_dict = torch.load(path, map_location='cpu')
             self.backbone.load_state_dict(state_dict)
             for param in self.backbone.parameters():
                 param.requires_grad = False
@@ -30,11 +36,16 @@ class my_res50(nn.Module):
         return x
 
 class my_2d1d(nn.Module):
-    def __init__(self, backbone_model_name, feature_dim, channels_1D, output_dim, kernel_size, dropout=0.1):
+    def __init__(self, backbone_model_name, feature_dim, channels_1D, output_dim, kernel_size, dropout=0.1, root_dir=''):
         super().__init__()
 
-        CNN_spatial = my_res50()
-        path = os.path.join("load", backbone_model_name + ".pth")
+        CNN_spatial = my_res50(root_dir=root_dir)
+
+        if root_dir:
+            path = os.path.join(root_dir, backbone_model_name + ".pth")
+        else:
+            path = os.path.join("load", backbone_model_name + ".pth")
+
         state_dict = torch.load(path, map_location='cpu')
         CNN_spatial.load_state_dict(state_dict)
         self.CNN_spatial = CNN_spatial.backbone
@@ -57,20 +68,25 @@ class my_2d1d(nn.Module):
         return x
 
 class my_2dlstm(nn.Module):
-    def __init__(self, backbone_model_name, feature_dim, output_dim, dropout=0.5):
+    def __init__(self, backbone_model_name, feature_dim, output_dim, dropout=0.5, root_dir=''):
         super().__init__()
 
-        CNN_spatial = my_res50()
-        path = os.path.join("load", backbone_model_name + ".pth")
+        CNN_spatial = my_res50(root_dir=root_dir)
+
+        if root_dir:
+            path = os.path.join(root_dir, backbone_model_name + ".pth")
+        else:
+            path = os.path.join("load", backbone_model_name + ".pth")
+
         state_dict = torch.load(path, map_location='cpu')
         CNN_spatial.load_state_dict(state_dict)
         self.CNN_spatial = CNN_spatial.backbone
 
         for param in self.CNN_spatial.parameters():
             param.requires_grad = False
-        self.temporal = nn.LSTM(input_size=feature_dim, hidden_size=64, num_layers=2,
+        self.temporal = nn.LSTM(input_size=feature_dim, hidden_size=128, num_layers=2,
                                 batch_first=True, bidirectional=True, dropout=dropout)
-        self.regressor = nn.Linear(feature_dim // 4, output_dim)
+        self.regressor = nn.Linear(feature_dim // 2, output_dim)
 
     def forward(self, x):
         num_batches, length, channel, width, height = x.shape

@@ -101,6 +101,10 @@ class Avec19ParamControl(GenericParamControl):
                 '3': slice(178, 187), '4': slice(187, 196), '5': slice(196, 205),
                 '6': slice(205, 235), '7': slice(4, 10)}
 
+        # return {'0': slice(151, 160), '1': slice(160, 169), '2': slice(169, 178),
+        #         '3': slice(178, 187), '4': slice(187, 196), '5': slice(196, 205),
+        #         '6': slice(205, 235), '7': slice(4, 10)}
+
 
 class GenericReduceLROnPlateau(object):
     def __init__(self, patience, min_epoch, learning_rate, num_release, milestone):

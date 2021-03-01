@@ -37,8 +37,8 @@ def initialize_emotion_spatial_temporal_model(
 def initial_setting(seed=0, gpu_index=None, cpu_thread_number=None):
     initialize_random_seed(seed)
     device = detect_device()
-    # if gpu_index is not None:
-    #     select_gpu(gpu_index)
+    if gpu_index is not None:
+        select_gpu(gpu_index)
 
     if cpu_thread_number is not None:
         set_cpu_thread(cpu_thread_number)
@@ -54,8 +54,8 @@ def initialize_random_seed(seed=0):
 
 
 def detect_device():
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    device = torch.device('cuda:1')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device('cuda:1')
     return device
 
 

@@ -142,10 +142,10 @@ class generic_experiment_static_image_classification(object):
             dataloaders_dict = {'train': train_loader, 'val': val_loader}
 
 
-            milestone = [100]
+            milestone = [0]
             trainer = EmotionalStaticImgClassificationTrainer(model, model_name=self.model_name,
                                                               num_classes=self.config['num_classes'], device=device,
-                                                              fold=fold, milestone=milestone, patience=10, samples_weight=samples_weight)
+                                                              fold=fold, milestone=milestone, patience=5, samples_weight=samples_weight)
             trainer.fit(dataloaders_dict, num_epochs=2000, early_stopping=100, topk_accuracy=1, min_num_epoch=0,
                         save_model=True)
             # trainer.validate(test_loader, topk_accuracy=1)
